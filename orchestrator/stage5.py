@@ -106,21 +106,66 @@ def run_stage5(brain: Brain, spec: str) -> dict:
 
 # --- 1. testing ------------------------------------------------------------
 
+TESTER_STEPS = 16
+SUITE_ATTEMPTS = 3      # Replies asked for before giving up on getting a suite at all.
+CORRECTION_ROUNDS = 2   # Times the tester sees results and may fix its own test bugs.
+SUITE_NUDGE = "Reply now with the COMPLETE tests.mjs suite as one ```js fenced code block, and nothing else."
+
+
 def _write_suite(brain: Brain, spec: str, page: Page, outline: str):
+    """The tester replies with the suite as a code block; the harness saves and runs it, and shows the
+    tester the results so it can correct its own test bugs (never real page defects)."""
     ctx = ToolContext(TESTER.name, WORKSPACE_DIR / TESTER.name)
+    suite = (ctx.workspace / "tests.mjs").resolve()
+    suite.parent.mkdir(parents=True, exist_ok=True)
     messages = [
         {"role": "system", "content": "You are the Stage 5 testing sub-agent."},
         {"role": "user", "content": loop_prompt("tester", spec=spec, outline=outline or "(unavailable)",
                                                 inventory=page.inventory())},
     ]
     tool_log: list[str] = []
-    run_tool_loop(brain, TESTER, messages, ctx, tool_log, max_tokens=brain.config.merge_max_tokens)
-    suite = (ctx.workspace / "tests.mjs").resolve()
-    if not suite.is_file():
-        raise RuntimeError("testing role never wrote tests.mjs")
+    reply = run_tool_loop(brain, TESTER, messages, ctx, tool_log,
+                          max_tokens=brain.config.merge_max_tokens, max_steps=TESTER_STEPS)
+    code = _suite_block(reply)
+    for _ in range(SUITE_ATTEMPTS - 1):
+        if code:
+            break
+        messages += [{"role": "assistant", "content": reply}, {"role": "user", "content": SUITE_NUDGE}]
+        reply = brain.chat(messages, max_tokens=brain.config.merge_max_tokens).content or ""
+        code = _suite_block(reply)
+    if not code:
+        if not suite.is_file():  # Last resort: it may have saved the suite with write_file after all.
+            raise RuntimeError("testing role produced no test suite")
+        code = suite.read_text(encoding="utf-8")
+    suite.write_text(code, encoding="utf-8")
+
+    for _ in range(CORRECTION_ROUNDS):
+        result = run_test_file(suite)
+        if result.get("build", {}).get("ok") is False:
+            break  # A page problem, not a test problem.
+        summary = json.dumps({k: result.get(k) for k in ("loadError", "runnerCrashed", "tests") if result.get(k)})[:12_000]
+        if not result.get("loadError") and not any(t["status"] == "fail" for t in result.get("tests", [])):
+            break
+        messages += [{"role": "assistant", "content": reply},
+                     {"role": "user", "content": "Results of running your suite:\n" + summary + "\n\nIf any failure "
+                      "is a bug in the TEST, reply with the complete corrected suite in one ```js block. If every "
+                      "failure is a real page defect, reply with exactly: KEEP"}]
+        reply = brain.chat(messages, max_tokens=brain.config.merge_max_tokens).content or ""
+        corrected = _suite_block(reply)
+        if not corrected:
+            break  # KEEP (or no usable reply): the failures stand as page defects.
+        suite.write_text(corrected, encoding="utf-8")
+        print("  tester corrected its suite after seeing the results")
+
     SUITE_COPY.write_text(suite.read_text(encoding="utf-8"), encoding="utf-8")
-    print(f"  suite written ({len(tool_log)} tool calls); copy at results/{SUITE_COPY.name}")
+    print(f"  suite ready ({len(tool_log)} tool calls); copy at results/{SUITE_COPY.name}")
     return suite
+
+
+def _suite_block(reply: str) -> str | None:
+    """The ES-module test suite from a reply's fenced code block, if any."""
+    blocks = re.findall(r"```(?:js|javascript|mjs)?[^\n]*\n(.*?)```", reply, re.DOTALL)
+    return next((b for b in blocks if "export default" in b), None)
 
 
 def _run(suite, ids: list[str] | None = None) -> list[dict]:

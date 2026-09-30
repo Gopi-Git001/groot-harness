@@ -22,6 +22,7 @@ from parallel import run_parallel
 from roles import loop_prompt
 
 APP = "src/App.tsx"
+ASK_ATTEMPTS = 3
 
 
 @dataclass
@@ -139,11 +140,15 @@ class Assembler:
     # --- 4. wire ---------------------------------------------------------
 
     def _wire(self, page: Page, stage3_failures: str, report: MergeReport) -> None:
-        reply = self._ask(loop_prompt("wire", spec=self.spec, inventory=page.inventory(),
-                                      stage3_failures=stage3_failures or "(none)"))
-        app = extract_files(reply).get(APP)
-        if not app:
-            raise RuntimeError("wiring step returned no src/App.tsx")
+        prompt = loop_prompt("wire", spec=self.spec, inventory=page.inventory(),
+                             stage3_failures=stage3_failures or "(none)")
+        for _ in range(ASK_ATTEMPTS):
+            reply = self._ask(prompt)
+            if app := extract_files(reply).get(APP):
+                break
+            print("  wiring reply had no src/App.tsx block; asking again")
+        else:
+            raise RuntimeError(f"wiring step returned no src/App.tsx after {ASK_ATTEMPTS} attempts")
         page.files[APP] = app
         page.sources[APP] = ["layout-page-structure"]
         report.wiring = _section(reply, "Notes") or "- (no notes)"
@@ -183,10 +188,13 @@ class Assembler:
               f"{missing} spec requirements missing")
 
     def _ask(self, prompt: str) -> str:
-        return self.brain.chat(
-            [{"role": "system", "content": self.system}, {"role": "user", "content": prompt}],
-            max_tokens=self.brain.config.merge_max_tokens,
-        ).content or ""
+        """One assembler call. GPT-OSS sometimes returns reasoning with no text: ask again."""
+        messages = [{"role": "system", "content": self.system}, {"role": "user", "content": prompt}]
+        for _ in range(ASK_ATTEMPTS):
+            reply = self.brain.chat(messages, max_tokens=self.brain.config.merge_max_tokens).content or ""
+            if reply.strip():
+                return reply
+        return ""
 
 
 def normalize_page(page: Page) -> list[str]:

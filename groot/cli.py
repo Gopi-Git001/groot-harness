@@ -135,8 +135,10 @@ def cmd_build(args) -> None:
         print("\nReview or edit the spec, then run:\n"
               f"  groot build \"{project}\"")
         return
-    _run_stages(brain, args.from_stage, args.rounds)
+    page_works = _run_stages(brain, args.from_stage, args.rounds)
     _summary(project)
+    if not page_works:
+        sys.exit(1)
 
 
 def _resolve_target(args) -> tuple[Path, str]:
@@ -170,7 +172,8 @@ def _resolve_target(args) -> tuple[Path, str]:
     return project, prompt
 
 
-def _run_stages(brain, from_stage: int, rounds: int) -> None:
+def _run_stages(brain, from_stage: int, rounds: int) -> bool:
+    """Run the stages; returns False when the final page does not build or renders blank."""
     from config import SPEC_PATH
     from main import run_stage3, select
     from loop import BUILDER_GROUPS
@@ -189,8 +192,9 @@ def _run_stages(brain, from_stage: int, rounds: int) -> None:
         if not final.build_ok or final.blank:
             print("\nStage 5 skipped: the page does not build or renders blank. "
                   "See groot/results/stage-4-report.md.")
-            return
+            return False
     run_stage5(brain, spec)
+    return True
 
 
 def _summary(project: Path) -> None:

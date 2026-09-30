@@ -168,16 +168,15 @@ class Stage3:
 
     def _merge_call(self, drafts: str, scope: str, target: str) -> str:
         prompt = self.merger.render(self.spec, drafts) + loop_prompt("merge", scope=scope, target=target)
-        reply = self.brain.chat(
-            [
-                {"role": "system", "content": "You are the assembly sub-agent merging slices into one page."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=self.brain.config.merge_max_tokens,
-        ).content or ""
-        if not reply.strip():
-            raise RuntimeError(f"merge of {scope} returned an empty reply")
-        return reply
+        messages = [
+            {"role": "system", "content": "You are the assembly sub-agent merging slices into one page."},
+            {"role": "user", "content": prompt},
+        ]
+        for _ in range(3):  # GPT-OSS sometimes returns reasoning with no text: ask again.
+            reply = self.brain.chat(messages, max_tokens=self.brain.config.merge_max_tokens).content or ""
+            if reply.strip():
+                return reply
+        raise RuntimeError(f"merge of {scope} returned an empty reply 3 times")
 
     # --- output ----------------------------------------------------------
 

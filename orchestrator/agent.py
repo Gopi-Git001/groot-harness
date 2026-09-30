@@ -162,11 +162,11 @@ def written_files(ctx: ToolContext, tool_log: list[str]) -> dict[str, str]:
 
 
 def run_tool_loop(brain: Brain, role: Role, messages: list[dict], ctx: ToolContext, tool_log: list[str],
-                  max_tokens: int | None = None) -> str:
+                  max_tokens: int | None = None, max_steps: int | None = None) -> str:
     """Run the model with the role's tools until it answers without calling any."""
     tools = schemas_for(role.group)
     empty_replies = 0
-    for _ in range(brain.config.max_tool_steps):
+    for _ in range(max_steps or brain.config.max_tool_steps):
         message = brain.chat(messages, tools if empty_replies < EMPTY_RETRIES else None, max_tokens)
         if not message.tool_calls:
             if (message.content or "").strip() or empty_replies > EMPTY_RETRIES:

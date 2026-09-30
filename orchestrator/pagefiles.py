@@ -86,6 +86,15 @@ def broken_imports(files: dict[str, str]) -> dict[str, list[str]]:
 
 
 _IMPORT_CLAUSE = re.compile(r"""\bimport\s+(?!type\b)([^'";]+?)\s+from\s*['"]([^'"]+)['"]""")
+_REEXPORT_CLAUSE = re.compile(r"""\bexport\s*(?!type\b)\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]""")
+
+
+def _member_defined(target: str, name: str, member: str) -> bool:
+    """Does the target file give component `name` a `member` (Name.Member = ..., or an object/assign)?"""
+    if re.search(rf"\b{name}\.{member}\s*=", target):
+        return True
+    built = re.search(rf"\b{name}\s*=\s*(?:Object\.assign\(|\{{)", target)
+    return bool(built) and bool(re.search(rf"\b{member}\b", target[built.start():]))
 
 
 def missing_exports(files: dict[str, str]) -> dict[str, list[str]]:
@@ -111,12 +120,35 @@ def missing_exports(files: dict[str, str]) -> dict[str, list[str]]:
                             f"uses {namespace.group(1)}.{name}, but {target} does not export '{name}'")
                 continue
             wanted = ["default"] if default else []
-            wanted += [n.replace("type ", "").split(" as ")[0].strip()
-                       for n in named.rstrip("} ").split(",") if n.strip() and not n.strip().startswith("type ")]
+            locals_ = {"default": default} if default else {}
+            for part in named.rstrip("} ").split(","):
+                part = part.strip()
+                if part and not part.startswith("type "):
+                    original, _, alias = part.partition(" as ")
+                    wanted.append(original.strip())
+                    locals_[original.strip()] = (alias or original).strip()
             for name in wanted:
                 if name not in available:
                     label = "a default export" if name == "default" else f"'{name}'"
                     missing.setdefault(path, []).append(f"imports {label} from '{spec}', but {target} does not export it")
+            # <Select.Trigger> on an imported component needs Select.Trigger to exist in the target file.
+            for exported, local in locals_.items():
+                source_name = local if exported == "default" else exported
+                for member in dict.fromkeys(re.findall(rf"<{local}\.(\w+)", content)):
+                    if not _member_defined(files[target], source_name, member):
+                        missing.setdefault(path, []).append(
+                            f"uses <{local}.{member}>, but {target} does not define {source_name}.{member}")
+
+        # Barrel re-exports: `export { A, B as C } from './x'` needs A and B exported by ./x.
+        for names, spec in _REEXPORT_CLAUSE.findall(content):
+            target = resolve(spec, path, paths) if is_local(spec) else None
+            if not target or target not in files or re.search(r"\bexport\s*\*\s*from", files[target]):
+                continue
+            available = set(exports(files[target]))
+            for part in names.split(","):
+                name = part.strip().split(" as ")[0].strip()
+                if name and not name.startswith("type ") and name not in available:
+                    missing.setdefault(path, []).append(f"re-exports '{name}' from '{spec}', but {target} does not export it")
     return missing
 
 

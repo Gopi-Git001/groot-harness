@@ -114,6 +114,14 @@ def raw_issues(raw: dict) -> list[Issue]:
     if "verifyCrashed" in raw:
         return [Issue("runtime", "Headless verification crashed: " + raw["verifyCrashed"][:500])]
 
+    diagnosis = raw.get("crashDiagnosis") or []
+    if diagnosis:
+        # Development React names the file and line: fix there, not in whatever the model guesses.
+        hint = next((m.group(1) for d in diagnosis if (m := re.search(r"Check your code at ([\w.-]+\.\w+):", d))), "")
+        detail = "\n".join(dict.fromkeys(re.sub(r"\n\s+at .*", "", d).strip() for d in diagnosis))
+        crash = [Issue("runtime", "Page crashes on render and shows nothing. Development build says:\n" + detail, hint)]
+        return crash  # Every other check is a symptom of the crash.
+
     issues = [Issue("console", e["text"].split("\n")[0]) for e in raw.get("console", []) if e.get("type") == "error"]
     issues += [Issue("runtime", e["text"].split("\n")[0]) for e in raw.get("pageErrors", [])]
     issues += [Issue("rejection", e["text"].split("\n")[0]) for e in raw.get("rejections", [])]
@@ -178,6 +186,8 @@ def _attribute(raw: list[Issue], model: list[Issue], page: Page, owners: set[str
         return {w for w in re.findall(r"[a-z0-9#]{4,}", text.lower())}
 
     for issue in raw:
+        if issue.file and issue.file not in page.files:  # A bare file name from a stack trace: find its path.
+            issue.file = next((p for p in page.files if p.rsplit("/", 1)[-1] == issue.file), issue.file)
         if issue.file in page.sources:  # The report names the file: its owner is known for certain.
             issue.owner = page.sources[issue.file][0]
             continue

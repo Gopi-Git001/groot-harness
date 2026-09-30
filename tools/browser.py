@@ -71,6 +71,8 @@ def verify_build() -> dict:
             report = {"build": {"ok": True}, "verifyCrashed": (run.stdout + run.stderr)[-OUTPUT_TAIL:]}
         else:
             report = {"build": {"ok": True}, **json.loads(lines[-1])}
+            if any("Minified React error" in e.get("text", "") for e in report.get("pageErrors", [])):
+                report["crashDiagnosis"] = diagnose_crash()
     RESULT_PATH.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report
 
@@ -78,6 +80,17 @@ def verify_build() -> dict:
 def playwright(ctx, **_args) -> str:
     """Tool: build the current merged page in build/ and return the headless verification report."""
     return json.dumps(verify_build(), indent=1)[:20_000]
+
+
+def diagnose_crash() -> list[str]:
+    """Rebuild with development React (dist-dev/) and return its full error messages, which name the
+    component, file, and line that crashed. Empty if the diagnosis itself fails."""
+    run = _run("node", "diagnose.mjs")
+    lines = [line for line in run.stdout.splitlines() if line.startswith("{")]
+    try:
+        return json.loads(lines[-1])["errors"] if lines else []
+    except (ValueError, KeyError):
+        return []
 
 
 def build_page() -> dict:
