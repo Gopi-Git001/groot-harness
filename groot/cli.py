@@ -12,7 +12,7 @@
 Project folder layout:
     INSTRUCTIONS.md   your instructions (never modified; written from --prompt text in prompt mode)
     assets/           optional images and files the page may use, served at /assets/<name>
-    groot/            harness state: spec.md, results/ (reports, logs, scores), workspace/
+    groot/            harness state: spec.md, build.log (live progress), results/ (reports, scores), workspace/
     site/             the finished React + Vite project
 """
 
@@ -31,7 +31,39 @@ INSTRUCTION_NAMES = ("INSTRUCTIONS.md", "instructions.md", "Instructions.md")
 PREVIEW_PORT = 4173
 
 
+class _Tee:
+    """Write output to the terminal and to the project's groot/build.log as it happens."""
+
+    def __init__(self, stream, log):
+        self.stream, self.log = stream, log
+
+    def write(self, text: str) -> int:
+        self.stream.write(text)
+        self.log.write(text)
+        return len(text)
+
+    def flush(self) -> None:
+        self.stream.flush()
+        self.log.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
+def _log_to(project: Path) -> None:
+    """Mirror stdout/stderr into <project>/groot/build.log, line by line."""
+    log_path = project / "groot" / "build.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log = open(log_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115 (lives for the whole run)
+    log.write(f"\n===== groot {' '.join(sys.argv[1:])} =====\n")
+    sys.stdout, sys.stderr = _Tee(sys.stdout, log), _Tee(sys.stderr, log)
+
+
 def main(argv: list[str] | None = None) -> None:
+    # Flush every line, so progress shows live even when output is redirected to a file.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser(prog="groot", description="Build a web page with a GPT-OSS 120B agent team.")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -82,6 +114,7 @@ def cmd_init(args) -> None:
 
 def cmd_build(args) -> None:
     project, instructions = _resolve_target(args)
+    _log_to(project)
     _bootstrap(project)
     from brain import Brain
     from config import SPEC_PATH, load_config
@@ -190,6 +223,7 @@ def cmd_preview(args) -> None:
 
 def cmd_test(args) -> None:
     project = _existing_project(args.folder)
+    _log_to(project)
     _bootstrap(project)
     from brain import Brain
     from config import SPEC_PATH, load_config

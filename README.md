@@ -37,9 +37,25 @@ What lands in your folder:
 my-site/
   INSTRUCTIONS.md     # yours, never modified (prompt mode writes your prompt here)
   groot/spec.md       # the structured spec the spec writer (GPT-OSS) produced from your instructions
+  groot/build.log     # live progress of every groot build / groot test run
   groot/results/      # Stage 2-5 slices, logs, reports, test results, evaluation
   site/               # the finished React + Vite + Tailwind project (npm run dev / npm run build)
 ```
+
+## Known limitations
+This is an early, experimental harness. Expect:
+
+- **Time and cost per build:** 45-70 minutes and a few hundred model calls (about US$0.15-0.30 on OpenRouter's `openai/gpt-oss-120b`). Free-tier or zero-credit keys stop partway with `402` errors; runs resume with `--from-stage`.
+- **Machine:** 8 GB RAM or more with a few GB free. The build runs headless Chromium, Node, and Python together; on low memory the OS or your terminal may stop it.
+- **Uneven quality:** pages usually build and load cleanly, but can ship with functional bugs (e.g. a dialog whose backdrop blocks its form) that the fix and debug loops do not always resolve. Check `groot/results/stage-5-evaluation.md` and the "Known limitations" lists in the Stage 4/5 reports before using a page.
+- **Landing pages:** roles, prompts, and checks are tuned for single-page marketing sites. Dashboards, multi-page apps, and pages needing a backend fit poorly.
+- **Fixed stack:** React 18 + TypeScript + Tailwind (shadcn/ui style) on Vite. Only the packages in `scaffold/package.json` are available to the page.
+- **No external resources:** images must be inline SVG/CSS or your own files in `assets/`; no external images, fonts, or network calls.
+- **Spec audit noise:** the verifier's model-based audit can vary between passes on an unchanged page; build, console, crash, overflow, and link checks are deterministic.
+- **Install:** editable install from a clone only (`pip install -e .`). Tested on Windows 10 with Python 3.12 and Node 24; macOS and Linux are untested.
+- **Benchmarking** against other tools is manual; the harness does not run or score competitor output.
+
+If a build fails, `groot/build.log` and `groot/results/` contain the full progress and every report.
 
 ## Architecture
 - Design and stages: [CLAUDE.md](CLAUDE.md), [agent-harness-procedure.md](agent-harness-procedure.md)
