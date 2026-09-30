@@ -3,16 +3,19 @@
 Started by running `groot` with no arguments (or `groot build` with no target).
 """
 
+import os
 import re
 import shutil
 import subprocess
 import sys
+import time
 import webbrowser
 from pathlib import Path
 
 from groot import cli
 
 YES = {"y", "yes", "go", "build", "build it", "ok", "okay", "start", "do it", "yes build it"}
+MIN_DESCRIPTION_WORDS = 4
 QUIT = {"q", "quit", "exit", "bye"}
 # Build output lines worth showing in the chat; everything else goes to groot/build.log only.
 PROGRESS = re.compile(r"^(== |Stage \d|  page score|  converged|\d+/\d+ roles|Average confidence|"
@@ -22,11 +25,19 @@ PROGRESS = re.compile(r"^(== |Stage \d|  page score|  converged|\d+/\d+ roles|Av
 def run() -> None:
     _say("groot — a GPT-OSS 120B team that builds your web page.")
     _say("Describe the page you want: what it is for, sections, text, colors, anything that matters.")
-    _say("(Press Enter on an empty line to send. Type 'quit' to leave.)\n")
+    _say("(Press Enter on an empty line to send. You can paste long instructions, or give the path to")
+    _say(" an instructions .md file. Type 'quit' to leave.)\n")
 
-    description = _read_message()
-    if not description or description.lower() in QUIT:
-        return
+    while True:
+        description = _read_message()
+        if not description or description.lower() in QUIT:
+            return
+        if len(re.findall(r"\w+", description)) >= MIN_DESCRIPTION_WORDS:
+            break
+        # A greeting or a few words is not a page description yet.
+        _say("Hi! Tell me about the page you want to build, for example:")
+        _say("  \"A landing page for my coffee shop called Bean There: menu with prices, opening hours,")
+        _say("   and a contact form. Warm brown colors.\"   (then press Enter on an empty line)\n")
     project = _choose_folder(description)
 
     cli._bootstrap(project)
@@ -127,20 +138,45 @@ def _choose_folder(description: str) -> Path:
 
 
 def _read_message() -> str:
+    """Read one message. An empty line sends it, unless more pasted text is already waiting
+    (so pasted instructions with blank lines between paragraphs arrive as one message).
+    A message that is just a path to a text or markdown file is replaced by that file's contents."""
     lines = []
     try:
         while True:
             line = input("you › " if not lines else "      ")
             if not line.strip():
-                if lines:
+                if lines and not _paste_pending():
                     break
+                if lines:
+                    lines.append("")
                 continue
             lines.append(line)
             if len(lines) == 1 and line.strip().lower() in QUIT | YES | {"show"}:
                 break  # One-word commands send immediately.
     except (EOFError, KeyboardInterrupt):
-        return "quit"
-    return "\n".join(lines).strip()
+        return "quit" if not lines else "\n".join(lines).replace("﻿", "").strip()
+    return _from_file("\n".join(lines).replace("﻿", "").strip())
+
+
+def _paste_pending() -> bool:
+    """True if more typed or pasted input is already waiting (a paste arrives all at once)."""
+    if not sys.stdin.isatty():
+        return False
+    time.sleep(0.05)
+    if os.name == "nt":
+        import msvcrt
+        return bool(msvcrt.kbhit())
+    import select
+    return bool(select.select([sys.stdin], [], [], 0)[0])
+
+
+def _from_file(message: str) -> str:
+    candidate = Path(message.strip().strip('"').strip("'")).expanduser()
+    if "\n" not in message and candidate.suffix.lower() in (".md", ".txt") and candidate.is_file():
+        _say(f"Reading instructions from {candidate.name}")
+        return candidate.read_text(encoding="utf-8-sig").strip()
+    return message
 
 
 def _save_spec(path: Path, spec: str) -> None:
