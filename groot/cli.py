@@ -1,5 +1,6 @@
 """groot CLI: build a web page from a prompt or from a folder of instructions.
 
+    groot                                       interactive chat: describe, refine the plan, build, preview
     groot init                                  set up the model endpoint and API key
     groot build "a landing page for ..." --out ./my-site
     groot build ./my-folder                     reads INSTRUCTIONS.md (or the folder's only .md file)
@@ -64,7 +65,13 @@ def main(argv: list[str] | None = None) -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(line_buffering=True)
-    parser = argparse.ArgumentParser(prog="groot", description="Build a web page with a GPT-OSS 120B agent team.")
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv or argv == ["build"]:  # `groot` alone opens the chat.
+        from groot import chat
+        chat.run()
+        return
+    parser = argparse.ArgumentParser(prog="groot", description="Build a web page with a GPT-OSS 120B agent team. "
+                                     "Run `groot` with no arguments for an interactive chat.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init", help="configure the model endpoint and API key (~/.groot/.env)")

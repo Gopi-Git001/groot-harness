@@ -19,11 +19,21 @@ STACK = """## Stack
 
 
 def write_spec(brain: Brain, instructions: str, assets: list[str]) -> str:
-    prompt = loop_prompt(
-        "spec-writer",
-        instructions=instructions.strip(),
-        assets="\n".join(f"- {name}" for name in assets) or "(none: use inline SVG or CSS for all images)",
-    )
+    prompt = loop_prompt("spec-writer", instructions=instructions.strip(), assets=_asset_list(assets))
+    return _ask_for_spec(brain, prompt)
+
+
+def revise_spec(brain: Brain, spec: str, request: str, assets: list[str]) -> str:
+    """Apply a user's change request to an existing spec, keeping everything else."""
+    prompt = loop_prompt("spec-revise", spec=spec, request=request.strip(), assets=_asset_list(assets))
+    return _ask_for_spec(brain, prompt)
+
+
+def _asset_list(assets: list[str]) -> str:
+    return "\n".join(f"- {name}" for name in assets) or "(none: use inline SVG or CSS for all images)"
+
+
+def _ask_for_spec(brain: Brain, prompt: str) -> str:
     messages = [{"role": "system", "content": "You are the spec writer. Reply with the spec markdown only."},
                 {"role": "user", "content": prompt}]
     for _ in range(ATTEMPTS):

@@ -12,7 +12,19 @@ groot init                # endpoint, model, API key -> ~/.groot/.env
 ```
 
 ## Use
-Give it a prompt:
+The easiest way is the chat: run `groot` with no arguments.
+```
+groot
+groot › Describe the page you want...
+you › A landing page for my bike repair shop, friendly, green colors
+groot › Where should I put it? [C:\Users\you\Documents\bike-repair-shop]
+groot › Here's the plan: ... (sections, style)
+you › Call it Spoke & Wheel and add three customer reviews     # refine as often as you like
+you › yes                                                      # builds (45-70 min), then opens the preview
+```
+Press Enter on an empty line to send a message; `show` prints the full plan, `quit` stops (the plan is kept).
+
+Or give it a prompt in one command:
 ```
 groot build "A landing page for my coffee shop: innovative, very simple, looks great" --out ./coffee
 ```
