@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "groot-harness"
+version = "0.1.0"
+description = "GPT-OSS 120B front-end harness: 50 sub-agents, judge loops, and headless verification build a web page from a prompt."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["openai>=1.40", "python-dotenv>=1.0"]
+
+[project.scripts]
+groot = "groot.cli:main"
+
+# The CLI runs the orchestrator, prompts, and scaffold straight from the repo checkout,
+# so install it editable: pip install -e .
+[tool.setuptools]
+packages = ["groot", "tools"]
